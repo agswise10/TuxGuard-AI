@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Linux Copilot XAI — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="vendor/chart.umd.js"></script>
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* Scoped styles for the PS-2 capability overview strip only — style.css is untouched. */
+  .ps2-capabilities {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin: 14px 0 18px;
+  }
+  @media (max-width: 900px) {
+    .ps2-capabilities { grid-template-columns: repeat(2, 1fr); }
+  }
+  .ps2-cap-group {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+  }
+  .ps2-cap-title {
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--cyan);
+    margin: 0 0 6px;
+  }
+  .ps2-cap-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ps2-cap-list li {
+    font-size: 12.5px;
+    color: var(--text-dim);
+    padding-left: 12px;
+    position: relative;
+  }
+  .ps2-cap-list li::before {
+    content: "›";
+    position: absolute;
+    left: 0;
+    color: var(--amber-dim);
+  }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ===================== TOP BAR ===================== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-glyph">&gt;_</span>
+      <div class="brand-text">
+        <span class="brand-name">Linux Copilot <em>XAI</em></span>
+        <span class="brand-sub">AI Operations Dashboard</span>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <div id="health-score-chip" class="health-score-chip" data-level="unknown" title="Linux Health Score — CPU, RAM, Disk, Failed Services, Active Fix Engine Alerts">
+        <span class="health-score-label">Linux Health Score</span>
+        <span id="health-score-value" class="health-score-value">--</span><span class="health-score-max">/100</span>
+      </div>
+      <div class="host-chip">
+        <span class="host-label">HOST</span>
+        <span id="host-name">—</span>
+      </div>
+      <div class="host-chip">
+        <span class="host-label">UPTIME</span>
+        <span id="host-uptime">—</span>
+      </div>
+      <button id="status-api" class="status-pill status-unknown" title="Backend API">
+        <span class="dot"></span> API
+      </button>
+      <button id="status-ollama" class="status-pill status-unknown" title="Ollama LLM">
+        <span class="dot"></span> LLM
+      </button>
+    </div>
+  </header>
+
+  <!-- ===================== MAIN GRID ===================== -->
+  <main class="dashboard-grid">
+
+    <!-- ---------- System Health Cards ---------- -->
+    <section class="health-row" aria-label="System health">
+
+      <article class="card health-card" data-metric="cpu">
+        <div class="health-card-head">
+          <h3>CPU</h3>
+          <span class="health-sub" id="cpu-sub">—</span>
+        </div>
+        <div class="health-readout">
+          <span id="cpu-value" class="readout-number">--</span><span class="readout-unit">%</span>
+        </div>
+        <div class="spark-wrap"><canvas id="cpu-chart"></canvas></div>
+        <div class="health-foot" id="cpu-foot">Waiting for data…</div>
+      </article>
+
+      <article class="card health-card" data-metric="ram">
+        <div class="health-card-head">
+          <h3>RAM</h3>
+          <span class="health-sub" id="ram-sub">—</span>
+        </div>
+        <div class="health-readout">
+          <span id="ram-value" class="readout-number">--</span><span class="readout-unit">%</span>
+        </div>
+        <div class="spark-wrap"><canvas id="ram-chart"></canvas></div>
+        <div class="health-foot" id="ram-foot">Waiting for data…</div>
+      </article>
+
+      <article class="card health-card" data-metric="disk">
+        <div class="health-card-head">
+          <h3>DISK</h3>
+          <span class="health-sub" id="disk-sub">—</span>
+        </div>
+        <div class="health-readout">
+          <span id="disk-value" class="readout-number">--</span><span class="readout-unit">%</span>
+        </div>
+        <div class="spark-wrap"><canvas id="disk-chart"></canvas></div>
+        <div class="health-foot" id="disk-foot">Waiting for data…</div>
+      </article>
+
+    </section>
+
+    <!-- ---------- Services + Logs ---------- -->
+    <section class="card span-4" aria-label="Running services">
+      <div class="card-head">
+        <h2>Running Services</h2>
+        <div class="card-head-actions">
+          <span id="services-summary" class="muted-chip">—</span>
+          <button class="icon-btn" id="refresh-services-btn" title="Refresh">⟳</button>
+        </div>
+      </div>
+      <div class="services-body">
+        <canvas id="services-donut" width="120" height="120"></canvas>
+        <ul id="services-list" class="scroll-list"></ul>
+      </div>
+    </section>
+
+    <section class="card span-8" aria-label="Recent logs">
+      <div class="card-head">
+        <h2>Recent Logs</h2>
+        <div class="card-head-actions">
+          <span id="logs-summary" class="muted-chip">—</span>
+          <button class="icon-btn" id="refresh-logs-btn" title="Refresh">⟳</button>
+        </div>
+      </div>
+      <ul id="logs-list" class="scroll-list log-list"></ul>
+    </section>
+
+    <!-- ---------- Recent Activities ---------- -->
+    <section class="card span-5" aria-label="Recent activities">
+      <div class="card-head">
+        <h2>Recent Activities</h2>
+        <button class="icon-btn" id="refresh-activity-btn" title="Refresh">⟳</button>
+      </div>
+      <ul id="activity-list" class="scroll-list activity-list"></ul>
+    </section>
+
+    <!-- ---------- AI Self-Healing Engine (Sprint 8) ---------- -->
+    <section class="card span-12" aria-label="AI self-healing engine">
+      <div class="card-head">
+        <h2>AI Self-Healing Engine</h2>
+        <div class="card-head-actions">
+          <span id="aifix-status-chip" class="status-pill status-unknown">
+            <span class="dot"></span> <span id="aifix-status-text">scanning…</span>
+          </span>
+          <button class="icon-btn" id="aifix-refresh-btn" title="Scan now">⟳</button>
+        </div>
+      </div>
+
+      <p class="aifix-subtitle">
+        Continuously monitors system, hardware and kernel health, predicts potential failures,
+        explains anomalies with evidence, and prepares safe recovery actions with user approval.
+      </p>
+
+      <div class="ps2-capabilities" aria-label="Autonomous fault detection and self-healing capabilities">
+        <div class="ps2-cap-group">
+          <p class="ps2-cap-title">SYSTEM MONITORING</p>
+          <ul class="ps2-cap-list">
+            <li>CPU</li>
+            <li>Memory</li>
+            <li>Disk</li>
+            <li>Services</li>
+          </ul>
+        </div>
+        <div class="ps2-cap-group">
+          <p class="ps2-cap-title">HARDWARE HEALTH</p>
+          <ul class="ps2-cap-list">
+            <li>CPU Temperature</li>
+            <li>GPU Temperature</li>
+            <li>NVMe SMART</li>
+          </ul>
+        </div>
+        <div class="ps2-cap-group">
+          <p class="ps2-cap-title">KERNEL HEALTH</p>
+          <ul class="ps2-cap-list">
+            <li>Driver Anomalies</li>
+            <li>Kernel Errors</li>
+          </ul>
+        </div>
+        <div class="ps2-cap-group">
+          <p class="ps2-cap-title">PREDICTIVE ANALYSIS</p>
+          <ul class="ps2-cap-list">
+            <li>CPU Trend</li>
+            <li>Memory Trend</li>
+            <li>Disk Trend</li>
+          </ul>
+        </div>
+        <div class="ps2-cap-group">
+          <p class="ps2-cap-title">SELF-HEALING</p>
+          <ul class="ps2-cap-list">
+            <li>AI Diagnosis</li>
+            <li>Safety Check</li>
+            <li>User Confirmation</li>
+            <li>Recovery Verification</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="safety-trust-banner" aria-label="Safety guarantees for command execution">
+        <div class="safety-trust-item">
+          <span class="safety-trust-icon">✓</span>
+          <span>Safety Checked</span>
+        </div>
+        <div class="safety-trust-item">
+          <span class="safety-trust-icon">✓</span>
+          <span>User Approval Required</span>
+        </div>
+        <div class="safety-trust-item">
+          <span class="safety-trust-icon">✓</span>
+          <span>Audit Logged</span>
+        </div>
+      </div>
+
+      <div id="aifix-loading" class="loading">Scanning system…</div>
+      <div id="aifix-error" class="error-box hidden"></div>
+      <div id="aifix-empty" class="empty-note hidden">✅ No issues detected right now.</div>
+      <div id="aifix-issues" class="aifix-issue-list"></div>
+    </section>
+
+    <!-- ---------- AI Chat Window ---------- -->
+    <section class="card span-12 chat-card" aria-label="AI chat window">
+      <div class="card-head">
+        <h2>AI Chat Window</h2>
+        <span class="muted-chip">session <code id="chat-session-chip">—</code></span>
+      </div>
+
+      <div id="chat-window" class="chat-window">
+        <div class="chat-empty">
+          Ask things like <em>"why is my system slow?"</em>, <em>"restart nginx"</em>, or
+          <em>"show running docker containers"</em>. Recommended commands appear inline and never
+          run automatically.
+        </div>
+      </div>
+
+      <form id="chat-form" class="chat-input-row">
+        <input id="chat-input" type="text" placeholder="Ask the Ops Assistant…" autocomplete="off" />
+        <button type="submit" id="chat-send-btn">Send</button>
+      </form>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <span>Linux Copilot XAI — National Level Hackathon Project · Proof of Concept</span>
+    <a href="#" id="safety-rules-link">View safety rules</a>
+  </footer>
+</div>
+
+<div id="safety-modal" class="modal hidden">
+  <div class="modal-body">
+    <div class="modal-head">
+      <h2>Command Safety Rules</h2>
+      <button id="close-safety-modal" class="icon-btn">✕</button>
+    </div>
+    <div id="safety-rules-content"></div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
